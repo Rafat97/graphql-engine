@@ -1,34 +1,39 @@
-use crate::stages::{data_connectors, graphql_config, type_permissions};
-use crate::types::error::{BooleanExpressionError, Error};
-use crate::types::internal_flags::MetadataResolveFlagsInternal;
-use crate::Qualified;
-use open_dds::{boolean_expression::BooleanExpressionOperand, types::CustomTypeName};
-use std::collections::{BTreeMap, BTreeSet};
 mod graphql;
-mod object;
-mod scalar;
-mod types;
-use lang_graphql::ast::common as ast;
-
 mod helpers;
+mod object;
+mod types;
+
+use std::collections::{BTreeMap, BTreeSet};
+
+use lang_graphql::ast::common as ast;
+use open_dds::{boolean_expression::BooleanExpressionOperand, types::CustomTypeName};
+
+use crate::stages::{graphql_config, scalar_boolean_expressions, type_permissions};
+use crate::types::configuration::Configuration;
+use crate::types::error::{BooleanExpressionError, Error};
+use crate::Qualified;
 
 pub use types::{
     BooleanExpressionComparableRelationship, BooleanExpressionGraphqlConfig,
     BooleanExpressionGraphqlFieldConfig, BooleanExpressionTypes, BooleanExpressionsOutput,
-    ComparisonExpressionInfo, IncludeIsNull, IncludeLogicalOperators,
-    ObjectComparisonExpressionInfo, ResolvedObjectBooleanExpressionType,
-    ResolvedScalarBooleanExpressionType,
+    ComparisonExpressionInfo, IncludeLogicalOperators, ObjectComparisonExpressionInfo,
+    ResolvedObjectBooleanExpressionType,
 };
 
 pub fn resolve(
     metadata_accessor: &open_dds::accessor::MetadataAccessor,
-    flags: MetadataResolveFlagsInternal,
+    configuration: Configuration,
+    boolean_expression_scalar_types: &BTreeMap<
+        Qualified<CustomTypeName>,
+        scalar_boolean_expressions::ResolvedScalarBooleanExpressionType,
+    >,
     existing_graphql_types: &BTreeSet<ast::TypeName>,
     graphql_config: &graphql_config::GraphqlConfig,
-    data_connectors: &data_connectors::DataConnectors,
     object_types: &BTreeMap<Qualified<CustomTypeName>, type_permissions::ObjectTypeWithPermissions>,
 ) -> Result<BooleanExpressionsOutput, Error> {
-    if !flags.enable_boolean_expression_types
+    if !configuration
+        .unstable_features
+        .enable_boolean_expression_types
         && !metadata_accessor.boolean_expression_types.is_empty()
     {
         return Err(Error::BooleanExpressionError {
@@ -54,32 +59,6 @@ pub fn resolve(
         );
     }
 
-    // let's resolve scalar types first
-
-    let mut boolean_expression_scalar_types = BTreeMap::new();
-
-    for (boolean_expression_type_name, (subgraph, boolean_expression_type)) in
-        &raw_boolean_expression_types
-    {
-        if let BooleanExpressionOperand::Scalar(boolean_expression_scalar_operand) =
-            &boolean_expression_type.operand
-        {
-            let scalar_boolean_expression_type = scalar::resolve_scalar_boolean_expression_type(
-                boolean_expression_type_name,
-                boolean_expression_scalar_operand,
-                &boolean_expression_type.is_null,
-                subgraph,
-                data_connectors,
-                &boolean_expression_type.graphql,
-            )?;
-
-            boolean_expression_scalar_types.insert(
-                boolean_expression_type_name.clone(),
-                scalar_boolean_expression_type,
-            );
-        }
-    }
-
     let mut boolean_expression_object_types = BTreeMap::new();
 
     for (boolean_expression_type_name, (subgraph, boolean_expression_type)) in
@@ -95,7 +74,7 @@ pub fn resolve(
                 subgraph,
                 &boolean_expression_type.graphql,
                 object_types,
-                &boolean_expression_scalar_types,
+                boolean_expression_scalar_types,
                 &raw_boolean_expression_types,
                 graphql_config,
             )?;
@@ -110,7 +89,7 @@ pub fn resolve(
     Ok(BooleanExpressionsOutput {
         boolean_expression_types: BooleanExpressionTypes {
             objects: boolean_expression_object_types,
-            scalars: boolean_expression_scalar_types,
+            scalars: boolean_expression_scalar_types.clone(),
         },
         graphql_types,
     })

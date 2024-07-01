@@ -1,10 +1,10 @@
-use crate::graphql_config;
-use crate::identifier::SubgraphIdentifier;
-use crate::{MetadataWithVersion, OpenDdSupergraphObject};
+use std::collections::HashSet;
 
-use super::{
-    aggregates, boolean_expression, commands, data_connector, flags, models, permissions,
-    relationships, types, Metadata, OpenDdSubgraphObject,
+use crate::identifier::SubgraphIdentifier;
+use crate::{
+    aggregates, boolean_expression, commands, data_connector, flags, graphql_config, models,
+    order_by_expression, permissions, relationships, types, Metadata, MetadataWithVersion,
+    OpenDdSubgraphObject, OpenDdSupergraphObject,
 };
 
 const GLOBALS_SUBGRAPH: SubgraphIdentifier = SubgraphIdentifier::new_inline_static("__globals");
@@ -28,11 +28,13 @@ impl<T> QualifiedObject<T> {
 const DEFAULT_FLAGS: flags::Flags = flags::Flags::new();
 
 pub struct MetadataAccessor {
+    pub subgraphs: HashSet<SubgraphIdentifier>,
     pub data_connectors: Vec<QualifiedObject<data_connector::DataConnectorLinkV1>>,
     pub object_types: Vec<QualifiedObject<types::ObjectTypeV1>>,
     pub object_boolean_expression_types: Vec<QualifiedObject<types::ObjectBooleanExpressionTypeV1>>,
     pub scalar_types: Vec<QualifiedObject<types::ScalarTypeV1>>,
     pub boolean_expression_types: Vec<QualifiedObject<boolean_expression::BooleanExpressionTypeV1>>,
+    pub order_by_expressions: Vec<QualifiedObject<order_by_expression::OrderByExpressionV1>>,
     pub data_connector_scalar_representations:
         Vec<QualifiedObject<types::DataConnectorScalarRepresentationV1>>,
     pub aggregate_expressions: Vec<QualifiedObject<aggregates::AggregateExpressionV1>>,
@@ -52,6 +54,7 @@ fn load_metadata_objects(
     subgraph: &SubgraphIdentifier,
     accessor: &mut MetadataAccessor,
 ) {
+    accessor.subgraphs.insert(subgraph.clone());
     for object in metadata_objects {
         match object {
             OpenDdSubgraphObject::DataConnectorLink(data_connector) => {
@@ -86,6 +89,12 @@ fn load_metadata_objects(
                 accessor.boolean_expression_types.push(QualifiedObject::new(
                     subgraph,
                     boolean_expression_type.upgrade(),
+                ));
+            }
+            OpenDdSubgraphObject::OrderByExpression(order_by_expression) => {
+                accessor.order_by_expressions.push(QualifiedObject::new(
+                    subgraph,
+                    order_by_expression.upgrade(),
                 ));
             }
             OpenDdSubgraphObject::DataConnectorScalarRepresentation(scalar_representation) => {
@@ -191,11 +200,13 @@ impl MetadataAccessor {
 
     fn new_empty(flags: Option<flags::Flags>) -> MetadataAccessor {
         MetadataAccessor {
+            subgraphs: HashSet::new(),
             data_connectors: vec![],
             object_types: vec![],
             scalar_types: vec![],
             object_boolean_expression_types: vec![],
             boolean_expression_types: vec![],
+            order_by_expressions: vec![],
             data_connector_scalar_representations: vec![],
             aggregate_expressions: vec![],
             models: vec![],
